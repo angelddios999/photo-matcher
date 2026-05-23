@@ -5,6 +5,8 @@ import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 
+TIMESTAMP_TOLERANCE_SECS = 60
+
 BACKUPS_DIR = Path(__file__).parent / "backups"
 
 mimetypes.add_type("image/heic", ".heic")
@@ -25,7 +27,7 @@ def parse_backups() -> list[dict]:
     return items
 
 
-def _parse_sidecar(json_path: Path) -> dict | None:
+def _parse_sidecar(json_path: Path):
     try:
         data = json.loads(json_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
@@ -54,28 +56,16 @@ def _parse_sidecar(json_path: Path) -> dict | None:
         "filename": title,
         "mimeType": mime,
         "creationTime": creation_time,
+        "timestamp": ts,
     }
 
 
 def build_index(items: list[dict]) -> dict:
-    """Index items by (filename_lower, YYYY-MM-DD) for fast lookup."""
+    """Index items by Unix timestamp (photoTakenTime) for fast lookup."""
     index = {}
     for item in items:
-        key = _make_key(item)
-        if key is None:
+        ts = item.get("timestamp")
+        if ts is None:
             continue
-        index.setdefault(key, []).append(item)
+        index.setdefault(ts, []).append(item)
     return index
-
-
-def _make_key(item: dict):
-    filename = item.get("filename")
-    creation_time = item.get("creationTime")
-    if not filename or not creation_time:
-        return None
-    try:
-        dt = datetime.fromisoformat(creation_time)
-        date_str = dt.date().isoformat()
-    except ValueError:
-        return None
-    return (filename.lower(), date_str)

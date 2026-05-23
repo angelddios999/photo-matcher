@@ -1,6 +1,9 @@
 """Apple Photos / Google Photos duplicate matcher module."""
 
+import calendar
 from datetime import date, datetime, timezone
+
+from google_photos import TIMESTAMP_TOLERANCE_SECS
 
 
 def find_duplicates(google_index: dict, start_date: date, end_date: date) -> list[dict]:
@@ -14,10 +17,10 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
 
     matches = []
     for photo in photos:
-        key = _make_apple_key(photo)
-        if key is None:
+        apple_ts = _apple_timestamp(photo)
+        if apple_ts is None:
             continue
-        google_matches = google_index.get(key)
+        google_matches = _lookup_with_tolerance(google_index, apple_ts)
         if google_matches:
             matches.append({
                 "apple": {
@@ -33,13 +36,21 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
     return matches
 
 
-def _make_apple_key(photo):
-    filename = photo.original_filename
-    dt = photo.date
-    if not filename or not dt:
+def _apple_timestamp(photo) -> int | None:
+    if not photo.date:
         return None
-    date_str = dt.date().isoformat()
-    return (filename.lower(), date_str)
+    # Google stored wall-clock time as UTC, so we match by treating
+    # Apple's local wall-clock time as UTC too (no offset applied).
+    return calendar.timegm(photo.date.timetuple())
+
+
+def _lookup_with_tolerance(index: dict, ts: int):
+    for delta in range(0, TIMESTAMP_TOLERANCE_SECS + 1):
+        for candidate in (ts + delta, ts - delta) if delta else (ts,):
+            result = index.get(candidate)
+            if result:
+                return result
+    return None
 
 
 def print_dry_run_report(matches: list[dict]) -> None:
