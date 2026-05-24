@@ -8,12 +8,12 @@ from google_photos import BACKUPS_DIR, parse_backups, build_index
 from matcher import find_duplicates, print_dry_run_report, delete_duplicates
 
 
-def _prompt_date(prompt: str) -> date:
+def _prompt_year(prompt: str) -> int:
     while True:
-        try:
-            return date.fromisoformat(input(prompt).strip())
-        except ValueError:
-            print("  Invalid date. Use YYYY-MM-DD format.")
+        raw = input(prompt).strip()
+        if raw.isdigit() and len(raw) == 4:
+            return int(raw)
+        print("  Invalid year. Use a 4-digit year like 2007.")
 
 
 def main():
@@ -35,11 +35,14 @@ def main():
 
     print(f"  {len(items)} media items parsed.")
 
-    start_date = _prompt_date("Start date for matching (YYYY-MM-DD): ")
-    end_date = _prompt_date("End date for matching   (YYYY-MM-DD): ")
-    if end_date < start_date:
-        print("End date must be on or after start date.")
+    from_year = _prompt_year("From year: ")
+    to_year   = _prompt_year("To year  : ")
+    if to_year < from_year:
+        print("To year must be on or after From year.")
         sys.exit(1)
+
+    start_date = date(from_year, 1, 1)
+    end_date   = date(to_year, 12, 31)
 
     print("\nBuilding lookup index...")
     google_index = build_index(items)
