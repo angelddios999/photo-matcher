@@ -88,6 +88,11 @@ def delete_duplicates(matches: list[dict]) -> int:
 
     conn = sqlite3.connect(str(_PHOTOS_DB))
     try:
+        # Photos.sqlite triggers call Core Data internal functions that only
+        # exist when the framework is loaded. Register no-op stubs so the
+        # triggers fire without error.
+        conn.create_function("NSCoreDataTriggerUpdateAffectedObjectValue", -1, lambda *a: None)
+
         placeholders = ",".join("?" for _ in uuids)
         cur = conn.execute(
             f"""
