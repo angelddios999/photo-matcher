@@ -1,9 +1,18 @@
 """Apple Photos / Google Photos duplicate matcher module."""
 
 import calendar
+import shutil
+import sqlite3
+import subprocess
+import time
 from datetime import date, datetime, timezone
+from pathlib import Path
 
 from google_photos import TIMESTAMP_TOLERANCE_SECS
+
+_PHOTOS_DB = Path.home() / "Pictures/Photos Library.photoslibrary/database/Photos.sqlite"
+# Apple Core Data epoch starts at 2001-01-01 00:00:00 UTC
+_APPLE_EPOCH_OFFSET = 978_307_200
 
 
 def find_duplicates(google_index: dict, start_date: date, end_date: date) -> list[dict]:
@@ -51,6 +60,50 @@ def _lookup_with_tolerance(index: dict, ts: int):
             if result:
                 return result
     return None
+
+
+def delete_duplicates(matches: list[dict]) -> int:
+    """Move matched Apple Photos to Recently Deleted via direct database update.
+
+    Photos.app must be closed before calling this — the function will refuse to
+    proceed if it detects Photos is running.
+    """
+    # Safety: ensure Photos.app is not open
+    running = subprocess.run(["pgrep", "-x", "Photos"], capture_output=True, text=True)
+    if running.stdout.strip():
+        raise RuntimeError(
+            "Photos.app is currently open. Close it first, then re-run with --delete."
+        )
+
+    if not _PHOTOS_DB.exists():
+        raise RuntimeError(f"Photos database not found at {_PHOTOS_DB}")
+
+    # Back up the database before modifying it
+    backup = _PHOTOS_DB.with_suffix(".sqlite.bak")
+    shutil.copy2(_PHOTOS_DB, backup)
+    print(f"  Database backed up → {backup}")
+
+    uuids = [m["apple"]["uuid"] for m in matches]
+    apple_now = time.time() - _APPLE_EPOCH_OFFSET
+
+    conn = sqlite3.connect(str(_PHOTOS_DB))
+    try:
+        placeholders = ",".join("?" for _ in uuids)
+        cur = conn.execute(
+            f"""
+            UPDATE ZASSET
+               SET ZTRASHEDSTATE = 1, ZTRASHEDDATE = ?
+             WHERE ZUUID IN ({placeholders})
+               AND ZTRASHEDSTATE = 0
+            """,
+            [apple_now, *uuids],
+        )
+        count = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+
+    return count
 
 
 def print_dry_run_report(matches: list[dict]) -> None:

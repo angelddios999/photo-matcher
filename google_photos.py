@@ -5,7 +5,7 @@ import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 
-TIMESTAMP_TOLERANCE_SECS = 60
+TIMESTAMP_TOLERANCE_SECS = 1
 
 BACKUPS_DIR = Path(__file__).parent / "backups"
 
