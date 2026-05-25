@@ -17,6 +17,13 @@ _APPLE_EPOCH_OFFSET = 978_307_200
 def find_duplicates(google_index: dict, start_date: date, end_date: date) -> list[dict]:
     import osxphotos
 
+    # Read the definitive UTC timestamp (ZDATECREATED) for every asset directly
+    # from Photos.sqlite. This is more reliable than photo.date.timestamp() because
+    # it doesn't depend on photo.date.tzinfo being set correctly (older cameras and
+    # phones often don't embed timezone info in EXIF, so osxphotos may return a
+    # naive datetime, causing photo.date.timestamp() to use the wrong timezone).
+    uuid_utc = _load_uuid_utc_map()
+
     db = osxphotos.PhotosDB()
     # Pad by 1 day on each side so photos near the year boundary aren't excluded
     # when their UTC time crosses midnight (e.g. Dec 31 8 PM CST = Jan 1 2 AM UTC).
@@ -28,7 +35,7 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
     matches = []
     for photo in photos:
         google_matches = None
-        for apple_ts in _apple_timestamps(photo):
+        for apple_ts in _apple_timestamps(photo, uuid_utc.get(photo.uuid)):
             google_matches = _lookup(google_index, apple_ts)
             if google_matches:
                 break
@@ -47,32 +54,53 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
     return matches
 
 
-def _apple_timestamps(photo) -> list[int]:
+def _load_uuid_utc_map() -> dict:
+    """Read ZDATECREATED (UTC) for every asset directly from Photos.sqlite.
+
+    ZDATECREATED is an Apple Core Data timestamp (seconds since 2001-01-01 UTC),
+    always stored in UTC regardless of the device timezone.
+    """
+    conn = sqlite3.connect(str(_PHOTOS_DB))
+    try:
+        cur = conn.execute(
+            "SELECT ZUUID, ZDATECREATED FROM ZASSET WHERE ZDATECREATED IS NOT NULL"
+        )
+        return {
+            uuid: int(ts + _APPLE_EPOCH_OFFSET)
+            for uuid, ts in cur.fetchall()
+        }
+    finally:
+        conn.close()
+
+
+def _apple_timestamps(photo, direct_utc: int | None = None) -> list[int]:
     """Return candidate Unix timestamps to try when matching against Google.
 
-    Google Photos uses two conventions depending on how the photo was uploaded:
-      1. Local wall-clock time stored *as if* it were UTC (common for Apple transfers).
-      2. Actual UTC timestamp (used for some photos).
+    Two conventions are tried:
 
-    Additionally, Apple Photos sometimes applies a DST correction on import that
-    the original camera clock (and Google) did not — producing a ±1-hour offset
-    (e.g. photos taken on a DST change day). We add ±3600 s variants of each
-    candidate to catch those cases.
+    A. direct_utc — ZDATECREATED read straight from Photos.sqlite, always UTC.
+       Matches photos where Google stored the real UTC timestamp.
+
+    B. local_as_utc — Apple's local wall-clock time treated as if it were UTC.
+       Matches photos where Google stored the local time without a UTC offset
+       (common for photos transferred via Apple Data & Privacy export).
+
+    Each candidate is also tried ±3600 s to catch cases where Apple Photos
+    applied a DST correction that Google (using raw EXIF) did not.
     """
-    if not photo.date:
-        return []
     candidates: set[int] = set()
-    # Convention 1: treat local wall-clock as UTC
-    base = calendar.timegm(photo.date.timetuple())
-    candidates.add(base)
-    candidates.add(base - 3600)  # Apple added a DST hour that Google didn't
-    candidates.add(base + 3600)  # Apple subtracted a DST hour that Google didn't
-    # Convention 2: actual UTC (only valid when the datetime is timezone-aware)
-    if photo.date.tzinfo is not None:
-        actual = int(photo.date.timestamp())
-        candidates.add(actual)
-        candidates.add(actual - 3600)
-        candidates.add(actual + 3600)
+
+    if direct_utc is not None:
+        candidates.add(direct_utc)
+        candidates.add(direct_utc - 3600)
+        candidates.add(direct_utc + 3600)
+
+    if photo.date:
+        local_as_utc = calendar.timegm(photo.date.timetuple())
+        candidates.add(local_as_utc)
+        candidates.add(local_as_utc - 3600)
+        candidates.add(local_as_utc + 3600)
+
     return list(candidates)
 
 
