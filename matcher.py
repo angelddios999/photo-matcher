@@ -34,8 +34,10 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
 
     matches = []
     for photo in photos:
+        info = uuid_utc.get(photo.uuid)
+        direct_utc, duration = info if info else (None, None)
         google_matches = None
-        for apple_ts in _apple_timestamps(photo, uuid_utc.get(photo.uuid)):
+        for apple_ts in _apple_timestamps(photo, direct_utc, duration):
             google_matches = _lookup(google_index, apple_ts)
             if google_matches:
                 break
@@ -55,7 +57,10 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
 
 
 def _load_uuid_utc_map() -> dict:
-    """Read ZDATECREATED (UTC) for every asset directly from Photos.sqlite.
+    """Read ZDATECREATED (UTC) and ZDURATION for every asset from Photos.sqlite.
+
+    Returns {uuid: (utc_timestamp, duration_seconds)} where duration is None
+    for photos and a float for videos.
 
     ZDATECREATED is an Apple Core Data timestamp (seconds since 2001-01-01 UTC),
     always stored in UTC regardless of the device timezone.
@@ -63,17 +68,17 @@ def _load_uuid_utc_map() -> dict:
     conn = sqlite3.connect(str(_PHOTOS_DB))
     try:
         cur = conn.execute(
-            "SELECT ZUUID, ZDATECREATED FROM ZASSET WHERE ZDATECREATED IS NOT NULL"
+            "SELECT ZUUID, ZDATECREATED, ZDURATION FROM ZASSET WHERE ZDATECREATED IS NOT NULL"
         )
         return {
-            uuid: int(ts + _APPLE_EPOCH_OFFSET)
-            for uuid, ts in cur.fetchall()
+            uuid: (int(ts + _APPLE_EPOCH_OFFSET), duration)
+            for uuid, ts, duration in cur.fetchall()
         }
     finally:
         conn.close()
 
 
-def _apple_timestamps(photo, direct_utc: int | None = None) -> list[int]:
+def _apple_timestamps(photo, direct_utc: int | None = None, duration: float | None = None) -> list[int]:
     """Return candidate Unix timestamps to try when matching against Google.
 
     Two base conventions are tried:
@@ -108,8 +113,8 @@ def _apple_timestamps(photo, direct_utc: int | None = None) -> list[int]:
 
     # Videos: subtract duration + overhead (0-3 s) from every base candidate so
     # that Apple's "end-of-recording" timestamp maps back to Google's "start" time.
-    if not photo.isphoto and photo.duration:
-        duration = round(photo.duration)
+    if not photo.isphoto and duration:
+        duration = round(duration)
         video_candidates: set[int] = set()
         for base in candidates:
             for overhead in range(4):  # 0, 1, 2, 3 seconds
