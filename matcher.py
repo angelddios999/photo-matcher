@@ -8,7 +8,6 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from google_photos import TIMESTAMP_TOLERANCE_SECS
 
 _PHOTOS_DB = Path.home() / "Pictures/Photos Library.photoslibrary/database/Photos.sqlite"
 # Apple Core Data epoch starts at 2001-01-01 00:00:00 UTC
@@ -30,7 +29,7 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
     for photo in photos:
         google_matches = None
         for apple_ts in _apple_timestamps(photo):
-            google_matches = _lookup_with_tolerance(google_index, apple_ts)
+            google_matches = _lookup(google_index, apple_ts)
             if google_matches:
                 break
         if google_matches:
@@ -77,13 +76,8 @@ def _apple_timestamps(photo) -> list[int]:
     return list(candidates)
 
 
-def _lookup_with_tolerance(index: dict, ts: int):
-    for delta in range(0, TIMESTAMP_TOLERANCE_SECS + 1):
-        for candidate in (ts + delta, ts - delta) if delta else (ts,):
-            result = index.get(candidate)
-            if result:
-                return result
-    return None
+def _lookup(index: dict, ts: int):
+    return index.get(ts)
 
 
 def delete_duplicates(matches: list[dict]) -> int:

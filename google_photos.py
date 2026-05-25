@@ -5,8 +5,6 @@ import mimetypes
 from datetime import datetime, timezone
 from pathlib import Path
 
-TIMESTAMP_TOLERANCE_SECS = 1
-
 BACKUPS_DIR = Path(__file__).parent / "backups"
 
 mimetypes.add_type("image/heic", ".heic")
