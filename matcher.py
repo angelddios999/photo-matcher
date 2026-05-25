@@ -54,16 +54,26 @@ def _apple_timestamps(photo) -> list[int]:
     Google Photos uses two conventions depending on how the photo was uploaded:
       1. Local wall-clock time stored *as if* it were UTC (common for Apple transfers).
       2. Actual UTC timestamp (used for some photos).
-    We return both so either convention gets matched.
+
+    Additionally, Apple Photos sometimes applies a DST correction on import that
+    the original camera clock (and Google) did not — producing a ±1-hour offset
+    (e.g. photos taken on a DST change day). We add ±3600 s variants of each
+    candidate to catch those cases.
     """
     if not photo.date:
         return []
     candidates: set[int] = set()
     # Convention 1: treat local wall-clock as UTC
-    candidates.add(calendar.timegm(photo.date.timetuple()))
+    base = calendar.timegm(photo.date.timetuple())
+    candidates.add(base)
+    candidates.add(base - 3600)  # Apple added a DST hour that Google didn't
+    candidates.add(base + 3600)  # Apple subtracted a DST hour that Google didn't
     # Convention 2: actual UTC (only valid when the datetime is timezone-aware)
     if photo.date.tzinfo is not None:
-        candidates.add(int(photo.date.timestamp()))
+        actual = int(photo.date.timestamp())
+        candidates.add(actual)
+        candidates.add(actual - 3600)
+        candidates.add(actual + 3600)
     return list(candidates)
 
 
