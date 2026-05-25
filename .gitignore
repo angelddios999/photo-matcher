@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Photo matcher
+credentials/client_secrets.json
+credentials/token.json
+backups/*.json
