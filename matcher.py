@@ -26,10 +26,11 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
 
     matches = []
     for photo in photos:
-        apple_ts = _apple_timestamp(photo)
-        if apple_ts is None:
-            continue
-        google_matches = _lookup_with_tolerance(google_index, apple_ts)
+        google_matches = None
+        for apple_ts in _apple_timestamps(photo):
+            google_matches = _lookup_with_tolerance(google_index, apple_ts)
+            if google_matches:
+                break
         if google_matches:
             matches.append({
                 "apple": {
@@ -45,12 +46,23 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
     return matches
 
 
-def _apple_timestamp(photo) -> int | None:
+def _apple_timestamps(photo) -> list[int]:
+    """Return candidate Unix timestamps to try when matching against Google.
+
+    Google Photos uses two conventions depending on how the photo was uploaded:
+      1. Local wall-clock time stored *as if* it were UTC (common for Apple transfers).
+      2. Actual UTC timestamp (used for some photos).
+    We return both so either convention gets matched.
+    """
     if not photo.date:
-        return None
-    # Google stored wall-clock time as UTC, so we match by treating
-    # Apple's local wall-clock time as UTC too (no offset applied).
-    return calendar.timegm(photo.date.timetuple())
+        return []
+    candidates: set[int] = set()
+    # Convention 1: treat local wall-clock as UTC
+    candidates.add(calendar.timegm(photo.date.timetuple()))
+    # Convention 2: actual UTC (only valid when the datetime is timezone-aware)
+    if photo.date.tzinfo is not None:
+        candidates.add(int(photo.date.timestamp()))
+    return list(candidates)
 
 
 def _lookup_with_tolerance(index: dict, ts: int):
