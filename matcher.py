@@ -117,7 +117,7 @@ def _apple_timestamps(photo, direct_utc: int | None = None, duration: float | No
         duration = round(duration)
         video_candidates: set[int] = set()
         for base in candidates:
-            for overhead in range(4):  # 0, 1, 2, 3 seconds
+            for overhead in range(-3, 4):  # -3, -2, -1, 0, 1, 2, 3 seconds
                 video_candidates.add(base - duration - overhead)
         candidates |= video_candidates
 
