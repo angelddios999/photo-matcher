@@ -5,7 +5,7 @@ import shutil
 import sqlite3
 import subprocess
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from google_photos import TIMESTAMP_TOLERANCE_SECS
@@ -19,9 +19,11 @@ def find_duplicates(google_index: dict, start_date: date, end_date: date) -> lis
     import osxphotos
 
     db = osxphotos.PhotosDB()
+    # Pad by 1 day on each side so photos near the year boundary aren't excluded
+    # when their UTC time crosses midnight (e.g. Dec 31 8 PM CST = Jan 1 2 AM UTC).
     photos = db.photos(
-        from_date=datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc),
-        to_date=datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59, tzinfo=timezone.utc),
+        from_date=datetime(start_date.year, 1, 1, tzinfo=timezone.utc) - timedelta(days=1),
+        to_date=datetime(end_date.year, 12, 31, 23, 59, 59, tzinfo=timezone.utc) + timedelta(days=1),
     )
 
     matches = []
