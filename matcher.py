@@ -76,7 +76,7 @@ def _load_uuid_utc_map() -> dict:
 def _apple_timestamps(photo, direct_utc: int | None = None) -> list[int]:
     """Return candidate Unix timestamps to try when matching against Google.
 
-    Two conventions are tried:
+    Two base conventions are tried:
 
     A. direct_utc — ZDATECREATED read straight from Photos.sqlite, always UTC.
        Matches photos where Google stored the real UTC timestamp.
@@ -85,8 +85,13 @@ def _apple_timestamps(photo, direct_utc: int | None = None) -> list[int]:
        Matches photos where Google stored the local time without a UTC offset
        (common for photos transferred via Apple Data & Privacy export).
 
-    Each candidate is also tried ±3600 s to catch cases where Apple Photos
+    Each base candidate is also tried ±3600 s to catch cases where Apple Photos
     applied a DST correction that Google (using raw EXIF) did not.
+
+    For videos, Apple stores the end of recording plus a metadata overhead of up
+    to 3 seconds, while Google stores the start of recording. Each base candidate
+    is therefore also tried with (duration + overhead) subtracted, where overhead
+    is 0–3 seconds.
     """
     candidates: set[int] = set()
 
@@ -100,6 +105,16 @@ def _apple_timestamps(photo, direct_utc: int | None = None) -> list[int]:
         candidates.add(local_as_utc)
         candidates.add(local_as_utc - 3600)
         candidates.add(local_as_utc + 3600)
+
+    # Videos: subtract duration + overhead (0-3 s) from every base candidate so
+    # that Apple's "end-of-recording" timestamp maps back to Google's "start" time.
+    if not photo.isphoto and photo.duration:
+        duration = round(photo.duration)
+        video_candidates: set[int] = set()
+        for base in candidates:
+            for overhead in range(4):  # 0, 1, 2, 3 seconds
+                video_candidates.add(base - duration - overhead)
+        candidates |= video_candidates
 
     return list(candidates)
 
