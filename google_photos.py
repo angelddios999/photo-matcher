@@ -2,6 +2,7 @@
 
 import json
 import mimetypes
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,11 +51,20 @@ def _parse_sidecar(json_path: Path):
     if not mime:
         return None
 
+    # Derive the media file path from the JSON filename.
+    # Google Takeout pairs each media file with a sidecar JSON whose name is:
+    #   <media_filename>.supplemental-metadata[(<N>)].json
+    # Stripping that suffix gives the actual media filename.
+    media_name = re.sub(r"\.supplemental-metadata(\(\d+\))?\.json$", "", json_path.name)
+    media_path = json_path.parent / media_name
+    file_path = media_path if media_path.exists() else None
+
     return {
         "filename": title,
         "mimeType": mime,
         "creationTime": creation_time,
         "timestamp": ts,
+        "file_path": file_path,
     }
 
 

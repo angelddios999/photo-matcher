@@ -211,3 +211,100 @@ def _print_matches(matches: list[dict]) -> None:
         print(f"      Date      : {apple['date']}")
         print(f"      Apple path: {apple['path'] or '(not on disk)'}")
         print(f"      Google ts : {google['creationTime']}")
+
+
+# ---------------------------------------------------------------------------
+# Import mode — copy Google-only items to to_import/
+# ---------------------------------------------------------------------------
+
+_TO_IMPORT_DIR = Path(__file__).parent / "to_import"
+
+
+def find_google_only(
+    google_items: list[dict],
+    matches: list[dict],
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
+    """Return Google items in the date range that have no match in Apple Photos.
+
+    Items without a corresponding media file in backups/ are silently skipped
+    (the file_path field will be None if the file was not found).
+    """
+    matched_ts = {m["google"]["timestamp"] for m in matches}
+
+    # Use the same ±1-day padded window as find_duplicates() so the filtering
+    # is consistent with what was actually queried from Apple Photos.
+    from_ts = (datetime(start_date.year, 1, 1, tzinfo=timezone.utc) - timedelta(days=1)).timestamp()
+    to_ts = (datetime(end_date.year, 12, 31, 23, 59, 59, tzinfo=timezone.utc) + timedelta(days=1)).timestamp()
+
+    result = []
+    for item in google_items:
+        ts = item.get("timestamp")
+        if ts is None or not (from_ts <= ts <= to_ts):
+            continue
+        if ts in matched_ts:
+            continue
+        if item.get("file_path") is None:
+            continue
+        result.append(item)
+    return result
+
+
+def copy_to_import(items: list[dict]) -> int:
+    """Copy unmatched Google items to the to_import/ folder.
+
+    Returns the number of files successfully copied.
+    """
+    _TO_IMPORT_DIR.mkdir(exist_ok=True)
+
+    copied = 0
+    seen: set[str] = set()
+
+    for item in items:
+        src = Path(item["file_path"])
+        dest_name = src.name
+
+        # Resolve filename conflicts inside to_import/
+        if dest_name in seen or (_TO_IMPORT_DIR / dest_name).exists():
+            stem, suffix = src.stem, src.suffix
+            i = 1
+            while f"{stem}({i}){suffix}" in seen or (_TO_IMPORT_DIR / f"{stem}({i}){suffix}").exists():
+                i += 1
+            dest_name = f"{stem}({i}){suffix}"
+
+        seen.add(dest_name)
+        shutil.copy2(src, _TO_IMPORT_DIR / dest_name)
+        copied += 1
+
+    return copied
+
+
+def print_import_report(items: list[dict]) -> None:
+    if not items:
+        print("\nNo new items to import — all Google Photos in this range are already in Apple Photos.")
+        return
+
+    photos = [i for i in items if i["mimeType"].startswith("image/")]
+    videos = [i for i in items if i["mimeType"].startswith("video/")]
+
+    print(f"\n{'='*80}")
+    print(f"IMPORT REPORT — {len(items)} item(s) not found in Apple Photos")
+    print(f"  Photos: {len(photos)}  |  Videos: {len(videos)}")
+    print(f"{'='*80}")
+
+    if photos:
+        print(f"\n--- PHOTOS ({len(photos)}) ---")
+        for i, item in enumerate(photos, 1):
+            print(f"\n  [{i}] {item['filename']}")
+            print(f"      Taken : {item['creationTime']}")
+            print(f"      Source: {item['file_path']}")
+
+    if videos:
+        print(f"\n--- VIDEOS ({len(videos)}) ---")
+        for i, item in enumerate(videos, 1):
+            print(f"\n  [{i}] {item['filename']}")
+            print(f"      Taken : {item['creationTime']}")
+            print(f"      Source: {item['file_path']}")
+
+    print(f"\n{'='*80}\n")
