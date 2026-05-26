@@ -254,26 +254,38 @@ def find_google_only(
 def copy_to_import(items: list[dict]) -> int:
     """Copy unmatched Google items to the to_import/ folder.
 
+    Multiple JSON sidecar entries can resolve to the same physical file (e.g.
+    when Google renames many photos to the same date-based filename). Each
+    unique source file is copied exactly once regardless of how many JSON
+    entries point to it.
+
     Returns the number of files successfully copied.
     """
     _TO_IMPORT_DIR.mkdir(exist_ok=True)
 
     copied = 0
-    seen: set[str] = set()
+    seen_sources: set[Path] = set()   # deduplicate by source path
+    seen_names: set[str] = set()      # avoid dest filename collisions
 
     for item in items:
-        src = Path(item["file_path"])
+        src = Path(item["file_path"]).resolve()
+
+        # Skip if this physical file was already copied
+        if src in seen_sources:
+            continue
+        seen_sources.add(src)
+
         dest_name = src.name
 
         # Resolve filename conflicts inside to_import/
-        if dest_name in seen or (_TO_IMPORT_DIR / dest_name).exists():
+        if dest_name in seen_names or (_TO_IMPORT_DIR / dest_name).exists():
             stem, suffix = src.stem, src.suffix
             i = 1
-            while f"{stem}({i}){suffix}" in seen or (_TO_IMPORT_DIR / f"{stem}({i}){suffix}").exists():
+            while f"{stem}({i}){suffix}" in seen_names or (_TO_IMPORT_DIR / f"{stem}({i}){suffix}").exists():
                 i += 1
             dest_name = f"{stem}({i}){suffix}"
 
-        seen.add(dest_name)
+        seen_names.add(dest_name)
         shutil.copy2(src, _TO_IMPORT_DIR / dest_name)
         copied += 1
 
