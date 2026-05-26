@@ -52,10 +52,32 @@ def _parse_sidecar(json_path: Path):
         return None
 
     # Derive the media file path from the JSON filename.
-    # Google Takeout pairs each media file with a sidecar JSON whose name is:
-    #   <media_filename>.supplemental-metadata[(<N>)].json
-    # Stripping that suffix gives the actual media filename.
-    media_name = re.sub(r"\.supplemental-metadata(\(\d+\))?\.json$", "", json_path.name)
+    # Google Takeout sidecar naming:
+    #   photo.jpg             → photo.jpg.supplemental-metadata.json
+    #   photo(1).jpg          → photo(1).jpg.supplemental-metadata.json
+    #
+    # When Google can't name the sidecar after the photo (e.g. filename too long),
+    # it numbers the *sidecar* suffix instead:
+    #   photo.jpg             → photo.jpg.supplemental-metadata.json
+    #   photo.jpg (2nd copy)  → photo.jpg.supplemental-metadata(1).json
+    # In that case the actual photo files are photo.jpg and photo(1).jpg — the
+    # number moves from the metadata suffix to the photo stem.
+    m = re.match(r"^(.+?)\.supplemental-metadata(\(\d+\))?\.json$", json_path.name)
+    if m:
+        base, number = m.group(1), m.group(2)   # e.g. "photo.jpg", "(1)" or None
+        if number:
+            # Try the numbered photo variant first: photo(1).jpg
+            stem, ext = Path(base).stem, Path(base).suffix
+            numbered = f"{stem}{number}{ext}"
+            if (json_path.parent / numbered).exists():
+                media_name = numbered
+            else:
+                media_name = base   # fall back to base file
+        else:
+            media_name = base
+    else:
+        media_name = re.sub(r"\.supplemental-metadata(\(\d+\))?\.json$", "", json_path.name)
+
     media_mime, _ = mimetypes.guess_type(media_name)
     media_path = json_path.parent / media_name
     if (
