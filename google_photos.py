@@ -56,8 +56,16 @@ def _parse_sidecar(json_path: Path):
     #   <media_filename>.supplemental-metadata[(<N>)].json
     # Stripping that suffix gives the actual media filename.
     media_name = re.sub(r"\.supplemental-metadata(\(\d+\))?\.json$", "", json_path.name)
+    media_mime, _ = mimetypes.guess_type(media_name)
     media_path = json_path.parent / media_name
-    file_path = media_path if media_path.exists() else None
+    if (
+        media_mime
+        and (media_mime.startswith("image/") or media_mime.startswith("video/"))
+        and media_path.exists()
+    ):
+        file_path = media_path
+    else:
+        file_path = None
 
     return {
         "filename": title,
